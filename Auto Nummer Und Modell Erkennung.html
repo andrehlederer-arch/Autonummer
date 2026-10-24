@@ -1,0 +1,1357 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoGuard AI – Kennzeichen- & Fahrzeug-Überwachung</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #090d16;
+            color: #f1f5f9;
+        }
+        /* License plate styling */
+        .plate-badge {
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.06em;
+            box-shadow: inset 0 0 0 2px #1e293b, 0 2px 4px rgba(0,0,0,0.4);
+        }
+        /* Scanning laser animation */
+        @keyframes scanline {
+            0% { top: 10%; opacity: 0.2; }
+            50% { top: 88%; opacity: 0.9; }
+            100% { top: 10%; opacity: 0.2; }
+        }
+        .scan-laser {
+            position: absolute;
+            left: 8%;
+            right: 8%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #10b981, #34d399, #10b981, transparent);
+            box-shadow: 0 0 12px #10b981;
+            animation: scanline 2.6s ease-in-out infinite;
+            pointer-events: none;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-white">
+
+    <!-- Top Navigation / Status Header -->
+    <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <!-- Brand Title -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
+                    <i class="fa-solid fa-video text-lg"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-bold text-lg tracking-tight text-white">AutoGuard <span class="text-emerald-400">AI</span></h1>
+                        <span class="text-[11px] font-mono uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">ANPR + Marke</span>
+                    </div>
+                    <p class="text-xs text-slate-400">Schweizer & Internationale Kennzeichen- und Fahrzeugerkennung</p>
+                </div>
+            </div>
+
+            <!-- Live Status Indicators (GPS & Clock) -->
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+                <!-- GPS Status Button -->
+                <button id="gpsBtn" onclick="toggleGpsModal()" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-slate-300 transition" title="Klicken, um GPS-Standort zu prüfen oder manuell anzupassen">
+                    <i id="gpsIcon" class="fa-solid fa-location-crosshairs text-amber-400 animate-pulse"></i>
+                    <span id="gpsText" class="font-mono">GPS wird gesucht...</span>
+                </button>
+
+                <!-- Live Clock -->
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 font-mono">
+                    <i class="fa-regular fa-clock text-emerald-400"></i>
+                    <span id="liveClock">--.--.---- --:--:--</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- LEFT COLUMN: Camera Feed, Motion Detection & Controls (5 Columns) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+
+            <!-- Source Mode Switcher -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-1.5 grid grid-cols-3 gap-1 text-xs font-medium">
+                <button id="modeCamBtn" onclick="switchSourceMode('camera')" class="py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-600 text-white shadow transition">
+                    <i class="fa-solid fa-camera"></i>
+                    <span>Live-Kamera</span>
+                </button>
+                <button id="modeSimBtn" onclick="switchSourceMode('simulator')" class="py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                    <i class="fa-solid fa-car-side"></i>
+                    <span>Demo-Verkehr</span>
+                </button>
+                <button id="modeUploadBtn" onclick="switchSourceMode('upload')" class="py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                    <i class="fa-solid fa-upload"></i>
+                    <span>Foto-Test</span>
+                </button>
+            </div>
+
+            <!-- Video / Canvas Viewport Container -->
+            <div class="relative bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl aspect-video flex items-center justify-center group">
+                
+                <!-- Live Camera Video Element -->
+                <video id="cameraVideo" class="w-full h-full object-cover hidden" autoplay playsinline muted></video>
+                
+                <!-- Interactive Display Canvas (Used for Simulator, Image Upload, and Capturing Frames) -->
+                <canvas id="viewportCanvas" width="960" height="540" class="w-full h-full object-cover"></canvas>
+
+                <!-- Scanning Laser Animation when AI or Auto-Scan is active -->
+                <div id="scanLaser" class="scan-laser hidden"></div>
+
+                <!-- Target ROI Frame Overlay -->
+                <div class="absolute inset-6 border border-emerald-500/30 rounded-xl pointer-events-none flex flex-col justify-between p-2.5">
+                    <div class="flex justify-between items-start">
+                        <span id="feedBadge" class="px-2 py-0.5 rounded bg-slate-900/80 backdrop-blur text-[11px] font-mono text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                            BEREIT
+                        </span>
+                        <span id="camSwitchContainer" class="pointer-events-auto">
+                            <button onclick="flipCamera()" class="px-2.5 py-1 rounded bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs transition" title="Kamera wechseln (Front / Rückseite)">
+                                <i class="fa-solid fa-camera-rotate mr-1"></i>Kamera wechseln
+                            </button>
+                        </span>
+                    </div>
+
+                    <!-- Center Crosshair subtle markers -->
+                    <div class="self-center my-auto opacity-30">
+                        <i class="fa-solid fa-plus text-emerald-400 text-xl"></i>
+                    </div>
+
+                    <!-- Bottom Overlay Bar inside video -->
+                    <div class="flex justify-between items-end gap-2">
+                        <div class="bg-slate-900/85 backdrop-blur px-2.5 py-1 rounded border border-slate-800 text-[11px] font-mono text-slate-300">
+                            Bewegung: <span id="motionValueText" class="text-emerald-400 font-bold">0%</span>
+                            <div class="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden mt-1">
+                                <div id="motionBar" class="h-full bg-emerald-500 transition-all duration-150" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Simulator Next Car Button (Only visible in simulator mode) -->
+                        <div id="simControlsOverlay" class="hidden pointer-events-auto flex items-center gap-1.5">
+                            <button onclick="spawnSimulatedCar()" class="px-2.5 py-1 rounded bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-medium shadow transition flex items-center gap-1">
+                                <i class="fa-solid fa-forward-step"></i> Nächstes Auto
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Upload Overlay (Only visible in upload mode) -->
+                <div id="uploadOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-10">
+                    <label for="imageUploadInput" class="cursor-pointer bg-slate-900 hover:bg-slate-800 border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-6 max-w-xs w-full transition flex flex-col items-center gap-2">
+                        <i class="fa-solid fa-cloud-arrow-up text-3xl text-emerald-400"></i>
+                        <span class="text-sm font-semibold text-white">Fahrzeug-Foto auswählen</span>
+                        <span class="text-xs text-slate-400">JPG, PNG oder WebP – wird direkt per KI ausgewertet</span>
+                        <input id="imageUploadInput" type="file" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                    </label>
+                </div>
+
+                <!-- AI Processing Overlay Spinner -->
+                <div id="aiLoadingOverlay" class="hidden absolute inset-0 bg-slate-950/65 backdrop-blur-[2px] flex flex-col items-center justify-center z-20">
+                    <div class="w-12 h-12 rounded-full border-4 border-emerald-500/30 border-t-emerald-400 animate-spin mb-3"></div>
+                    <p class="text-sm font-semibold text-white tracking-wide">KI analysiert Kennzeichen & Marke...</p>
+                    <p class="text-xs text-emerald-300 font-mono mt-1">CH & Internationale Datenbank aktiv</p>
+                </div>
+            </div>
+
+            <!-- Primary Action & Auto-Surveillance Controls -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-4 shadow-lg">
+                
+                <!-- Manual Scan & Auto-Motion Trigger Buttons -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button id="scanNowBtn" onclick="captureAndAnalyze('Manuell')" class="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition">
+                        <i class="fa-solid fa-expand text-base"></i>
+                        <span>Jetzt Fahrzeug scannen</span>
+                    </button>
+
+                    <button id="autoMonitorBtn" onclick="toggleAutoMonitoring()" class="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-center gap-2 transition">
+                        <i id="autoMonitorIcon" class="fa-solid fa-radar text-amber-400"></i>
+                        <span id="autoMonitorText">Auto-Überwachung: AUS</span>
+                    </button>
+                </div>
+
+                <!-- Settings Sliders for Motion Trigger & Cooldown -->
+                <div class="pt-3 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div>
+                        <div class="flex justify-between text-slate-300 mb-1">
+                            <label for="sensitivitySlider" class="font-medium">Bewegungs-Auslöser:</label>
+                            <span id="sensitivityLabel" class="font-mono text-emerald-400">12%</span>
+                        </div>
+                        <input id="sensitivitySlider" type="range" min="4" max="35" value="12" class="w-full accent-emerald-500 cursor-pointer" oninput="updateSensitivity(this.value)">
+                        <p class="text-[11px] text-slate-500 mt-0.5">Löst KI-Scan automatisch bei Durchfahrt aus</p>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-slate-300 mb-1">
+                            <label for="cooldownSlider" class="font-medium">Scan-Intervall (Pause):</label>
+                            <span id="cooldownLabel" class="font-mono text-emerald-400">5 Sek.</span>
+                        </div>
+                        <input id="cooldownSlider" type="range" min="3" max="20" value="5" class="w-full accent-emerald-500 cursor-pointer" oninput="updateCooldown(this.value)">
+                        <p class="text-[11px] text-slate-500 mt-0.5">Verhindert doppelte Erfassung desselben Autos</p>
+                    </div>
+                </div>
+
+                <!-- Latest Detection Live Banner -->
+                <div id="lastDetectionCard" class="bg-slate-950/90 border border-slate-800/90 rounded-xl p-3 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                            <i class="fa-solid fa-shield-halved text-emerald-400"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Letzter KI-Befund</p>
+                            <p id="lastDetectionStatus" class="text-xs text-slate-300 truncate">Bereit für Fahrzeug-Erfassung...</p>
+                        </div>
+                    </div>
+                    <div id="lastDetectionPlate" class="hidden shrink-0 px-2.5 py-1 rounded bg-white text-slate-950 font-mono font-extrabold text-xs plate-badge">
+                        --
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Box on Swiss + Foreign Recognition -->
+            <div class="bg-slate-900/60 border border-slate-800/80 rounded-xl p-3.5 text-xs text-slate-400 flex items-start gap-3">
+                <i class="fa-solid fa-circle-info text-emerald-400 text-sm mt-0.5"></i>
+                <div class="space-y-1">
+                    <p class="text-slate-200 font-medium">Unterstützt Schweizer & Ausländische Nummernschilder</p>
+                    <p>Die integrierte Bilderkennung liest Kontrollschilder aus der <strong class="text-slate-300">Schweiz (CH)</strong>, <strong class="text-slate-300">Deutschland (D)</strong>, <strong class="text-slate-300">Österreich (A)</strong>, <strong class="text-slate-300">Frankreich (F)</strong>, <strong class="text-slate-300">Italien (I)</strong> sowie aus ganz Europa und erkennt parallel <strong class="text-slate-300">Automarke, Modell & Farbe</strong>.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- RIGHT COLUMN: Logged Vehicles, Statistics & Export (7 Columns) -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+
+            <!-- KPI Summary Row -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                    <span class="text-xs text-slate-400 block">Erfasste Autos</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span id="statTotal" class="text-2xl font-bold text-white font-mono">0</span>
+                        <i class="fa-solid fa-car text-emerald-400/70 text-sm"></i>
+                    </div>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                    <span class="text-xs text-slate-400 block">Schweiz (CH)</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span id="statSwiss" class="text-2xl font-bold text-red-400 font-mono">0</span>
+                        <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30">CH</span>
+                    </div>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                    <span class="text-xs text-slate-400 block">Ausland (EU/Int.)</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span id="statForeign" class="text-2xl font-bold text-blue-400 font-mono">0</span>
+                        <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30">INT</span>
+                    </div>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                    <span class="text-xs text-slate-400 block">Häufigste Marke</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span id="statTopBrand" class="text-base font-bold text-emerald-400 truncate">--</span>
+                        <i class="fa-solid fa-award text-amber-400/70 text-sm"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log Table Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl flex-1 flex flex-col overflow-hidden shadow-lg">
+                
+                <!-- Filter, Search & Export Toolbar -->
+                <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 flex-1 min-w-[200px]">
+                        <div class="relative flex-1">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                            <input id="searchInput" type="text" placeholder="Suche nach Nummer, Marke, Land..." oninput="renderLogList()" class="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <select id="countryFilter" onchange="renderLogList()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500">
+                            <option value="ALL">Alle Länder</option>
+                            <option value="CH">Nur Schweiz (CH)</option>
+                            <option value="FOREIGN">Nur Ausland</option>
+                        </select>
+                    </div>
+
+                    <!-- Action Buttons: Add Manual, Export CSV, Clear -->
+                    <div class="flex items-center gap-2">
+                        <button onclick="openManualEntryModal()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition" title="Eintrag manuell hinzufügen">
+                            <i class="fa-solid fa-plus text-emerald-400"></i>
+                            <span class="hidden sm:inline">Manuell</span>
+                        </button>
+                        <button onclick="exportCSV()" class="px-3 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition" title="Als Excel/CSV-Datei speichern">
+                            <i class="fa-solid fa-file-csv"></i>
+                            <span>CSV Export</span>
+                        </button>
+                        <button onclick="exportJSON()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition" title="Als JSON-Backup speichern">
+                            <i class="fa-solid fa-download"></i>
+                            <span class="hidden sm:inline">JSON</span>
+                        </button>
+                        <button id="clearAllBtn" onclick="requestClearLogs()" class="px-2.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs transition" title="Protokoll leeren">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Vehicle Log List -->
+                <div id="logContainer" class="flex-1 overflow-y-auto divide-y divide-slate-800/70 max-h-[540px]">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- GPS Configuration / Override Modal -->
+    <div id="gpsModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-location-dot text-emerald-400"></i>
+                    GPS-Kamerastandort
+                </h3>
+                <button onclick="toggleGpsModal()" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <p class="text-slate-400">Der GPS-Standort wird automatisch bei jeder Fahrzeug-Erfassung mitgespeichert. Falls dein Browser kein Live-GPS freigibt, kannst du hier den Kamerastandort festlegen:</p>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-300 mb-1">Breitengrad (Latitude)</label>
+                        <input id="manualLatInput" type="number" step="0.000001" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 mb-1">Längengrad (Longitude)</label>
+                        <input id="manualLngInput" type="number" step="0.000001" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-slate-300 mb-1">Standort-Bezeichnung / Strasse (optional)</label>
+                    <input id="manualLocNameInput" type="text" placeholder="z.B. Hauptstrasse 12, Einfahrt Nord" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="requestLiveGps()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium">
+                    <i class="fa-solid fa-satellite-dish mr-1"></i> Live-GPS neu abfragen
+                </button>
+                <button onclick="saveManualGps()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+                    Standort übernehmen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Vehicle Entry Modal -->
+    <div id="manualEntryModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-pen-to-square text-emerald-400"></i>
+                    Fahrzeug manuell protokollieren
+                </h3>
+                <button onclick="closeManualEntryModal()" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="col-span-1">
+                        <label class="block text-slate-300 mb-1">Land-Code</label>
+                        <input id="manCountry" type="text" value="CH" placeholder="CH, D, A, F..." class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono uppercase">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-slate-300 mb-1">Autonummer / Kennzeichen</label>
+                        <input id="manPlate" type="text" placeholder="z.B. TG 149203 oder M AB 1234" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono uppercase">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-300 mb-1">Automarke & Modell</label>
+                        <input id="manBrand" type="text" placeholder="z.B. Audi Q5" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 mb-1">Farbe</label>
+                        <input id="manColor" type="text" placeholder="z.B. Anthrazit" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white">
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeManualEntryModal()" class="px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs">Abbrechen</button>
+                <button onclick="submitManualEntry()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Banner -->
+    <div id="toastBanner" class="fixed bottom-5 right-5 z-50 hidden transform transition-all duration-300">
+        <div class="bg-slate-900 border border-slate-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-xs">
+            <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+            <span id="toastMessage">Aktion ausgeführt</span>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. APPLICATION STATE & CONFIGURATION
+        // ==========================================
+        const apiKey = ""; // Provided by runtime environment
+
+        let sourceMode = 'camera'; // 'camera' | 'simulator' | 'upload'
+        let videoStream = null;
+        let usingRearCamera = true;
+        let autoMonitoring = false;
+        let isAnalyzing = false;
+        let motionThreshold = 12; // % pixel change to trigger scan
+        let cooldownSeconds = 5;
+        let lastScanTimestamp = 0;
+        let clearConfirmPending = false;
+
+        // GPS State (Default fallback coordinates in Thurgau, CH if permission blocked)
+        let gpsState = {
+            lat: 47.5961,
+            lng: 9.2478,
+            accuracy: null,
+            label: "Kamera-Standort 1",
+            live: false
+        };
+
+        // Simulated Traffic Vehicles (for immediate testing without waiting at a real road)
+        const demoVehicles = [
+            { plate: "TG 284910", country: "CH", brand: "Volkswagen", model: "Golf R", color: "Lapiz Blau", bodyHex: "#1d4ed8", accentHex: "#60a5fa", type: "Kompaktwagen" },
+            { plate: "KN DX 842", country: "D", brand: "BMW", model: "3er Touring", color: "Alpinweiss", bodyHex: "#e2e8f0", accentHex: "#94a3b8", type: "Kombi" },
+            { plate: "ZH 604112", country: "CH", brand: "Mercedes-Benz", model: "GLC 300", color: "Obsidianschwarz", bodyHex: "#1e293b", accentHex: "#64748b", type: "SUV" },
+            { plate: "B 49210 A", country: "A", brand: "Audi", model: "A4 Avant", color: " Florettsilber", bodyHex: "#94a3b8", accentHex: "#cbd5e1", type: "Kombi" },
+            { plate: "SG 91827", country: "CH", brand: "Skoda", model: "Octavia RS", color: "Mamba Grün", bodyHex: "#15803d", accentHex: "#4ade80", type: "Kombi" },
+            { plate: "FG-829-TK", country: "F", brand: "Peugeot", model: "3008", color: "Karmoisinrot", bodyHex: "#b91c1c", accentHex: "#f87171", type: "SUV" },
+            { plate: "MI 7492KL", country: "I", brand: "Alfa Romeo", model: "Giulia", color: "Rosso Competizione", bodyHex: "#991b1b", accentHex: "#ef4444", type: "Limousine" }
+        ];
+        let currentSimCarIndex = 0;
+        let simCarX = 480; // Centered so it's clearly visible
+
+        // Vehicle Log Storage
+        let vehicleLogs = [];
+        const STORAGE_KEY = 'autoguard_ai_logs_v1';
+
+        // Canvas & Motion Detection Buffers
+        const videoEl = document.getElementById('cameraVideo');
+        const canvasEl = document.getElementById('viewportCanvas');
+        const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+        const motionCanvas = document.createElement('canvas');
+        motionCanvas.width = 160;
+        motionCanvas.height = 90;
+        const motionCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
+        let prevMotionFrame = null;
+
+        // ==========================================
+        // 2. INITIALIZATION ON WINDOW LOAD
+        // ==========================================
+        window.onload = function () {
+            loadSavedLogs();
+            updateClock();
+            setInterval(updateClock, 1000);
+            initGpsTracking();
+            startCameraFeed();
+            requestAnimationFrame(renderLoop);
+        };
+
+        function updateClock() {
+            const now = new Date();
+            const formatted = now.toLocaleDateString('de-CH', {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            }) + ' ' + now.toLocaleTimeString('de-CH', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            document.getElementById('liveClock').textContent = formatted;
+        }
+
+        // ==========================================
+        // 3. GPS TRACKING & MANUAL FALLBACK
+        // ==========================================
+        function initGpsTracking() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition(
+                    (pos) => {
+                        gpsState.lat = pos.coords.latitude;
+                        gpsState.lng = pos.coords.longitude;
+                        gpsState.accuracy = Math.round(pos.coords.accuracy);
+                        gpsState.live = true;
+                        updateGpsBadge();
+                    },
+                    (err) => {
+                        gpsState.live = false;
+                        updateGpsBadge();
+                    },
+                    { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+                );
+            } else {
+                updateGpsBadge();
+            }
+        }
+
+        function updateGpsBadge() {
+            const icon = document.getElementById('gpsIcon');
+            const text = document.getElementById('gpsText');
+            if (gpsState.live) {
+                icon.className = "fa-solid fa-location-dot text-emerald-400";
+                text.textContent = `${gpsState.lat.toFixed(4)}, ${gpsState.lng.toFixed(4)} (±${gpsState.accuracy || 5}m)`;
+            } else {
+                icon.className = "fa-solid fa-location-crosshairs text-sky-400";
+                text.textContent = `${gpsState.lat.toFixed(4)}, ${gpsState.lng.toFixed(4)} (${gpsState.label})`;
+            }
+        }
+
+        function toggleGpsModal() {
+            const modal = document.getElementById('gpsModal');
+            if (modal.classList.contains('hidden')) {
+                document.getElementById('manualLatInput').value = gpsState.lat.toFixed(6);
+                document.getElementById('manualLngInput').value = gpsState.lng.toFixed(6);
+                document.getElementById('manualLocNameInput').value = gpsState.label || '';
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function requestLiveGps() {
+            initGpsTracking();
+            showToast("Frage Live-GPS vom Gerät ab...", "info");
+        }
+
+        function saveManualGps() {
+            const lat = parseFloat(document.getElementById('manualLatInput').value);
+            const lng = parseFloat(document.getElementById('manualLngInput').value);
+            const label = document.getElementById('manualLocNameInput').value.trim() || "Manuell";
+            if (!isNaN(lat) && !isNaN(lng)) {
+                gpsState.lat = lat;
+                gpsState.lng = lng;
+                gpsState.label = label;
+                gpsState.live = false;
+                updateGpsBadge();
+                toggleGpsModal();
+                showToast("Kamerastandort gespeichert", "success");
+            }
+        }
+
+        // ==========================================
+        // 4. CAMERA, SIMULATOR & UPLOAD SOURCES
+        // ==========================================
+        async function startCameraFeed() {
+            stopCameraStream();
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: usingRearCamera ? { ideal: "environment" } : "user",
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                };
+                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoEl.srcObject = videoStream;
+                await videoEl.play();
+                setFeedBadge("LIVE-KAMERA AKTIV", "emerald");
+            } catch (e) {
+                // If user has no camera or blocks permission in preview, switch smoothly to Demo Traffic Simulator
+                console.warn("Kamera nicht verfügbar, wechsle zu Demo-Verkehr Simulator:", e);
+                switchSourceMode('simulator');
+                showToast("Kamera nicht freigegeben – Demo-Strassenverkehr aktiviert", "info");
+            }
+        }
+
+        function stopCameraStream() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(t => t.stop());
+                videoStream = null;
+            }
+        }
+
+        function flipCamera() {
+            usingRearCamera = !usingRearCamera;
+            if (sourceMode === 'camera') {
+                startCameraFeed();
+            }
+        }
+
+        function switchSourceMode(mode) {
+            sourceMode = mode;
+            prevMotionFrame = null;
+
+            // Update tab button styles
+            const tabs = {
+                camera: document.getElementById('modeCamBtn'),
+                simulator: document.getElementById('modeSimBtn'),
+                upload: document.getElementById('modeUploadBtn')
+            };
+            Object.keys(tabs).forEach(k => {
+                if (k === mode) {
+                    tabs[k].className = "py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-600 text-white shadow transition";
+                } else {
+                    tabs[k].className = "py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition";
+                }
+            });
+
+            document.getElementById('uploadOverlay').classList.toggle('hidden', mode !== 'upload');
+            document.getElementById('simControlsOverlay').classList.toggle('hidden', mode !== 'simulator');
+            document.getElementById('camSwitchContainer').classList.toggle('hidden', mode !== 'camera');
+
+            if (mode === 'camera') {
+                startCameraFeed();
+            } else {
+                stopCameraStream();
+                if (mode === 'simulator') {
+                    setFeedBadge("DEMO-VERKEHR AKTIV", "indigo");
+                } else if (mode === 'upload') {
+                    setFeedBadge("FOTO-MODUS", "amber");
+                }
+            }
+        }
+
+        function setFeedBadge(text, color) {
+            const badge = document.getElementById('feedBadge');
+            badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-${color}-400 animate-ping"></span> ${text}`;
+        }
+
+        function spawnSimulatedCar() {
+            currentSimCarIndex = (currentSimCarIndex + 1) % demoVehicles.length;
+            simCarX = 140; // Enters from left side and drives to center
+        }
+
+        function handleImageUpload(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const img = new Image();
+                img.onload = function () {
+                    ctx.fillStyle = "#090d16";
+                    ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+                    // Fit image proportionally
+                    const scale = Math.min(canvasEl.width / img.width, canvasEl.height / img.height);
+                    const w = img.width * scale;
+                    const h = img.height * scale;
+                    const x = (canvasEl.width - w) / 2;
+                    const y = (canvasEl.height - h) / 2;
+                    ctx.drawImage(img, x, y, w, h);
+                    document.getElementById('uploadOverlay').classList.add('hidden');
+                    // Immediately run AI scan on uploaded image
+                    captureAndAnalyze('Foto-Upload');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // ==========================================
+        // 5. MAIN RENDER LOOP & MOTION DETECTION
+        // ==========================================
+        function renderLoop() {
+            if (sourceMode === 'camera' && videoEl.readyState >= 2) {
+                ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+                processMotionDetection();
+            } else if (sourceMode === 'simulator') {
+                drawSimulatedTrafficScene();
+                processMotionDetection();
+            }
+            requestAnimationFrame(renderLoop);
+        }
+
+        function drawSimulatedTrafficScene() {
+            const w = canvasEl.width;
+            const h = canvasEl.height;
+
+            // Asphalt road background
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, "#0f172a");
+            grad.addColorStop(0.35, "#1e293b");
+            grad.addColorStop(1, "#0f172a");
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+
+            // Road lane markings
+            ctx.strokeStyle = "rgba(255,255,255,0.18)";
+            ctx.lineWidth = 4;
+            ctx.setLineDash([36, 28]);
+            ctx.beginPath();
+            ctx.moveTo(0, h * 0.65);
+            ctx.lineTo(w, h * 0.65);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Smoothly animate car towards center inspection zone (x = 480)
+            if (simCarX < 480) {
+                simCarX = Math.min(480, simCarX + 8);
+            }
+
+            const car = demoVehicles[currentSimCarIndex];
+            const cx = simCarX;
+            const cy = h * 0.56;
+
+            // Car drop shadow
+            ctx.fillStyle = "rgba(0,0,0,0.55)";
+            ctx.beginPath();
+            ctx.ellipse(cx, cy + 105, 220, 28, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Car Body Lower (Front bumper & grille view)
+            ctx.fillStyle = car.bodyHex;
+            ctx.beginPath();
+            ctx.roundRect(cx - 200, cy - 30, 400, 125, 28);
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = car.accentHex;
+            ctx.stroke();
+
+            // Car Cabin / Windshield
+            ctx.fillStyle = "#0f172a";
+            ctx.beginPath();
+            ctx.moveTo(cx - 150, cy - 30);
+            ctx.lineTo(cx - 115, cy - 115);
+            ctx.lineTo(cx + 115, cy - 115);
+            ctx.lineTo(cx + 150, cy - 30);
+            ctx.closePath();
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = car.bodyHex;
+            ctx.stroke();
+
+            // Headlights
+            ctx.fillStyle = "#fef08a";
+            ctx.beginPath();
+            ctx.roundRect(cx - 180, cy - 8, 68, 28, 8);
+            ctx.roundRect(cx + 112, cy - 8, 68, 28, 8);
+            ctx.fill();
+
+            // Front Grille
+            ctx.fillStyle = "#090d16";
+            ctx.beginPath();
+            ctx.roundRect(cx - 95, cy - 5, 190, 42, 10);
+            ctx.fill();
+
+            // Brand Name on Grille/Hood so Vision AI can also read the make clearly
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 20px Inter, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(`${car.brand.toUpperCase()} ${car.model.toUpperCase()}`, cx, cy - 45);
+
+            // Realistic License Plate (Front center)
+            const pw = 240;
+            const ph = 52;
+            const px = cx - pw / 2;
+            const py = cy + 36;
+
+            // Plate White Background
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.roundRect(px, py, pw, ph, 6);
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = "#0f172a";
+            ctx.stroke();
+
+            // Country Strip (EU blue strip on left for foreign, or Swiss cross for CH)
+            if (car.country === 'CH') {
+                ctx.fillStyle = "#dc2626";
+                ctx.fillRect(px + 6, py + 8, 30, 36);
+                // White Swiss Cross
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(px + 18, py + 15, 6, 22);
+                ctx.fillRect(px + 10, py + 23, 22, 6);
+            } else {
+                // Blue EU Band
+                ctx.fillStyle = "#1d4ed8";
+                ctx.fillRect(px + 2, py + 2, 34, ph - 4);
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 16px JetBrains Mono, monospace";
+                ctx.textAlign = "center";
+                ctx.fillText(car.country, px + 19, py + 34);
+            }
+
+            // License Plate Number Text
+            ctx.fillStyle = "#090d16";
+            ctx.font = "800 28px JetBrains Mono, monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(car.plate, cx + 16, py + 36);
+        }
+
+        function processMotionDetection() {
+            motionCtx.drawImage(canvasEl, 0, 0, motionCanvas.width, motionCanvas.height);
+            const currentFrame = motionCtx.getImageData(0, 0, motionCanvas.width, motionCanvas.height);
+
+            if (prevMotionFrame) {
+                let changedPixels = 0;
+                const data = currentFrame.data;
+                const prev = prevMotionFrame.data;
+                const totalPixels = data.length / 4;
+
+                for (let i = 0; i < data.length; i += 16) { // Sample every 4th pixel for speed
+                    const diff = Math.abs(data[i] - prev[i]) +
+                                 Math.abs(data[i + 1] - prev[i + 1]) +
+                                 Math.abs(data[i + 2] - prev[i + 2]);
+                    if (diff > 75) changedPixels++;
+                }
+
+                const sampledTotal = totalPixels / 4;
+                const motionPercent = Math.min(100, Math.round((changedPixels / sampledTotal) * 100 * 2.5));
+
+                document.getElementById('motionValueText').textContent = `${motionPercent}%`;
+                document.getElementById('motionBar').style.width = `${motionPercent}%`;
+
+                // Trigger AI Scan if Auto-Monitoring is active, motion exceeds threshold, and cooldown has passed
+                const now = Date.now();
+                if (
+                    autoMonitoring &&
+                    !isAnalyzing &&
+                    motionPercent >= motionThreshold &&
+                    (now - lastScanTimestamp) > cooldownSeconds * 1000
+                ) {
+                    lastScanTimestamp = now;
+                    captureAndAnalyze('Auto-Bewegung');
+                }
+            }
+            prevMotionFrame = currentFrame;
+        }
+
+        function toggleAutoMonitoring() {
+            autoMonitoring = !autoMonitoring;
+            const btn = document.getElementById('autoMonitorBtn');
+            const text = document.getElementById('autoMonitorText');
+            const laser = document.getElementById('scanLaser');
+
+            if (autoMonitoring) {
+                btn.className = "py-3 px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-semibold text-sm flex items-center justify-center gap-2 transition";
+                text.textContent = "Auto-Überwachung: AKTIV";
+                laser.classList.remove('hidden');
+                showToast("Automatische Bewegungserkennung aktiviert", "success");
+            } else {
+                btn.className = "py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-center gap-2 transition";
+                text.textContent = "Auto-Überwachung: AUS";
+                laser.classList.add('hidden');
+            }
+        }
+
+        function updateSensitivity(val) {
+            motionThreshold = parseInt(val, 10);
+            document.getElementById('sensitivityLabel').textContent = `${motionThreshold}%`;
+        }
+
+        function updateCooldown(val) {
+            cooldownSeconds = parseInt(val, 10);
+            document.getElementById('cooldownLabel').textContent = `${cooldownSeconds} Sek.`;
+        }
+
+        // ==========================================
+        // 6. GEMINI VISION AI: PLATE & BRAND DETECTION
+        // ==========================================
+        async function fetchWithRetry(url, options, maxRetries = 4) {
+            let delay = 1000;
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) return await response.json();
+                    if (response.status !== 429 && response.status < 500) {
+                        throw new Error(`API Status ${response.status}`);
+                    }
+                } catch (err) {
+                    if (attempt === maxRetries) throw err;
+                }
+                await new Promise(r => setTimeout(r, delay));
+                delay *= 2;
+            }
+        }
+
+        async function captureAndAnalyze(triggerType = 'Manuell') {
+            if (isAnalyzing) return;
+            isAnalyzing = true;
+            lastScanTimestamp = Date.now();
+
+            const loadingOverlay = document.getElementById('aiLoadingOverlay');
+            const scanLaser = document.getElementById('scanLaser');
+            loadingOverlay.classList.remove('hidden');
+            scanLaser.classList.remove('hidden');
+
+            try {
+                // 1. Extract current frame from viewportCanvas as base64 JPEG
+                const fullDataUrl = canvasEl.toDataURL('image/jpeg', 0.85);
+                const base64ImageData = fullDataUrl.split(',')[1];
+
+                // Create a compact thumbnail (320x180) for fast localStorage persistence
+                const thumbCanvas = document.createElement('canvas');
+                thumbCanvas.width = 320;
+                thumbCanvas.height = 180;
+                thumbCanvas.getContext('2d').drawImage(canvasEl, 0, 0, 320, 180);
+                const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
+
+                // 2. Call Gemini Vision API with structured JSON schema
+                const prompt = `Analysiere dieses Kamerabild einer Fahrzeugüberwachung.
+Erkenne alle sichtbaren Fahrzeuge, lies das Kontrollschild/Kennzeichen (Schweizer Kennzeichen wie TG, ZH, BE, AG, SG sowie ausländische/internationale Kennzeichen aus D, A, F, I, FL, NL, PL, UK usw.) exakt ab und bestimme die Automarke, das Modell und die Fahrzeugfarbe.
+Falls kein Kennzeichen lesbar ist, setze licensePlate auf "UNBEKANNT".`;
+
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: prompt },
+                            {
+                                inlineData: {
+                                    mimeType: "image/jpeg",
+                                    data: base64ImageData
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                vehicleDetected: { type: "BOOLEAN" },
+                                licensePlate: { type: "STRING" },
+                                countryCode: { type: "STRING" },
+                                carBrand: { type: "STRING" },
+                                carModel: { type: "STRING" },
+                                vehicleColor: { type: "STRING" },
+                                vehicleType: { type: "STRING" },
+                                confidencePercent: { type: "INTEGER" }
+                            },
+                            propertyOrdering: [
+                                "vehicleDetected",
+                                "licensePlate",
+                                "countryCode",
+                                "carBrand",
+                                "carModel",
+                                "vehicleColor",
+                                "vehicleType",
+                                "confidencePercent"
+                            ]
+                        }
+                    }
+                };
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                const result = await fetchWithRetry(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!rawText) throw new Error("Keine KI-Antwort erhalten");
+
+                const parsed = JSON.parse(rawText);
+
+                if (!parsed.vehicleDetected) {
+                    updateLastDetectionBanner("Kein Fahrzeug im Bildausschnitt erkannt", null);
+                    showToast("Kein Fahrzeug im aktuellen Kamerabild erkannt", "info");
+                } else {
+                    const plateClean = (parsed.licensePlate || "UNBEKANNT").trim().toUpperCase();
+                    const countryClean = (parsed.countryCode || "INT").trim().toUpperCase();
+                    const brandModel = [parsed.carBrand, parsed.carModel].filter(Boolean).join(" ") || "Unbekannte Marke";
+
+                    const newEntry = {
+                        id: 'veh_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                        plate: plateClean,
+                        country: countryClean,
+                        brand: brandModel,
+                        color: parsed.vehicleColor || "Unbekannt",
+                        type: parsed.vehicleType || "PKW",
+                        confidence: parsed.confidencePercent || 95,
+                        timestamp: new Date().toISOString(),
+                        trigger: triggerType,
+                        gps: {
+                            lat: gpsState.lat,
+                            lng: gpsState.lng,
+                            label: gpsState.label
+                        },
+                        thumbnail: thumbnailDataUrl
+                    };
+
+                    vehicleLogs.unshift(newEntry);
+                    saveLogs();
+                    renderLogList();
+                    updateLastDetectionBanner(`${brandModel} (${newEntry.color}) erfasst`, `${countryClean} • ${plateClean}`);
+                    showToast(`Erfasst: ${plateClean} (${brandModel})`, "success");
+                }
+
+            } catch (error) {
+                console.error("Analyse-Fehler:", error);
+                showToast("KI-Analyse fehlgeschlagen – bitte erneut versuchen", "error");
+            } finally {
+                isAnalyzing = false;
+                loadingOverlay.classList.add('hidden');
+                if (!autoMonitoring) {
+                    scanLaser.classList.add('hidden');
+                }
+            }
+        }
+
+        function updateLastDetectionBanner(statusText, plateText) {
+            document.getElementById('lastDetectionStatus').textContent = statusText;
+            const plateBadge = document.getElementById('lastDetectionPlate');
+            if (plateText) {
+                plateBadge.textContent = plateText;
+                plateBadge.classList.remove('hidden');
+            } else {
+                plateBadge.classList.add('hidden');
+            }
+        }
+
+        // ==========================================
+        // 7. LOG MANAGEMENT, STORAGE & EXPORT
+        // ==========================================
+        function loadSavedLogs() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    vehicleLogs = JSON.parse(raw);
+                } else {
+                    // Provide 2 initial sample entries so the user immediately sees how the table & export work
+                    vehicleLogs = [
+                        {
+                            id: 'sample_1',
+                            plate: 'TG 410922',
+                            country: 'CH',
+                            brand: 'VW Golf R',
+                            color: 'Blau',
+                            type: 'PKW',
+                            confidence: 99,
+                            timestamp: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
+                            trigger: 'Auto-Bewegung',
+                            gps: { lat: 47.5961, lng: 9.2478, label: 'Kamera-Standort 1' },
+                            thumbnail: null
+                        },
+                        {
+                            id: 'sample_2',
+                            plate: 'KN DX 842',
+                            country: 'D',
+                            brand: 'BMW 3er Touring',
+                            color: 'Weiss',
+                            type: 'Kombi',
+                            confidence: 97,
+                            timestamp: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
+                            trigger: 'Auto-Bewegung',
+                            gps: { lat: 47.5961, lng: 9.2478, label: 'Kamera-Standort 1' },
+                            thumbnail: null
+                        }
+                    ];
+                }
+            } catch (e) {
+                vehicleLogs = [];
+            }
+            renderLogList();
+        }
+
+        function saveLogs() {
+            try {
+                // Keep max 100 entries in localStorage to respect browser quota
+                if (vehicleLogs.length > 100) {
+                    vehicleLogs = vehicleLogs.slice(0, 100);
+                }
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(vehicleLogs));
+            } catch (e) {
+                console.warn("Speicherplatz voll, älteste Einträge werden gekürzt.");
+                vehicleLogs = vehicleLogs.slice(0, 35);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(vehicleLogs));
+            }
+        }
+
+        function renderLogList() {
+            const container = document.getElementById('logContainer');
+            const query = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+            const countryFilter = document.getElementById('countryFilter').value;
+
+            // Update KPI Statistics
+            const total = vehicleLogs.length;
+            const swissCount = vehicleLogs.filter(v => v.country === 'CH').length;
+            const foreignCount = total - swissCount;
+
+            document.getElementById('statTotal').textContent = total;
+            document.getElementById('statSwiss').textContent = swissCount;
+            document.getElementById('statForeign').textContent = foreignCount;
+
+            // Calculate top car brand
+            if (total > 0) {
+                const counts = {};
+                vehicleLogs.forEach(v => {
+                    const firstWord = (v.brand || 'Unbekannt').split(' ')[0];
+                    counts[firstWord] = (counts[firstWord] || 0) + 1;
+                });
+                const topBrand = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || '--';
+                document.getElementById('statTopBrand').textContent = topBrand;
+            } else {
+                document.getElementById('statTopBrand').textContent = '--';
+            }
+
+            // Filter list
+            const filtered = vehicleLogs.filter(item => {
+                if (countryFilter === 'CH' && item.country !== 'CH') return false;
+                if (countryFilter === 'FOREIGN' && item.country === 'CH') return false;
+                if (!query) return true;
+                const hay = `${item.plate} ${item.brand} ${item.color} ${item.country} ${item.gps?.label || ''}`.toLowerCase();
+                return hay.includes(query);
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="p-12 text-center text-slate-500 space-y-2">
+                        <i class="fa-solid fa-car-tunnel text-3xl text-slate-600"></i>
+                        <p class="text-sm font-medium text-slate-400">Keine protokollierten Fahrzeuge gefunden</p>
+                        <p class="text-xs">Klicke links auf „Jetzt Fahrzeug scannen“ oder aktiviere die Auto-Überwachung.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filtered.map(item => {
+                const dt = new Date(item.timestamp);
+                const dateStr = dt.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const timeStr = dt.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const isSwiss = item.country === 'CH';
+                const countryBadgeClass = isSwiss
+                    ? 'bg-red-600 text-white'
+                    : 'bg-blue-700 text-white';
+
+                const lat = item.gps?.lat ? Number(item.gps.lat).toFixed(5) : '47.59610';
+                const lng = item.gps?.lng ? Number(item.gps.lng).toFixed(5) : '9.24780';
+                const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+
+                const thumbHtml = item.thumbnail
+                    ? `<img src="${item.thumbnail}" alt="Snapshot" class="w-20 h-14 object-cover rounded-lg border border-slate-700 shrink-0">`
+                    : `<div class="w-20 h-14 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-600 shrink-0"><i class="fa-solid fa-car-side text-lg"></i></div>`;
+
+                return `
+                    <div class="p-3.5 hover:bg-slate-800/40 transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-3.5 min-w-0">
+                            ${thumbHtml}
+                            <div class="space-y-1 min-w-0">
+                                <!-- License Plate + Country Badge -->
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <div class="inline-flex items-center rounded overflow-hidden border border-slate-700 shadow-sm">
+                                        <span class="${countryBadgeClass} px-1.5 py-0.5 text-[11px] font-mono font-bold">${escapeHtml(item.country)}</span>
+                                        <span class="bg-white text-slate-950 px-2.5 py-0.5 font-mono font-extrabold text-sm tracking-wider">${escapeHtml(item.plate)}</span>
+                                    </div>
+                                    <span class="text-xs font-semibold text-white truncate">${escapeHtml(item.brand)}</span>
+                                    <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">${escapeHtml(item.color)}</span>
+                                </div>
+
+                                <!-- Date, Time & GPS Link -->
+                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400 font-mono">
+                                    <span><i class="fa-regular fa-calendar text-emerald-400 mr-1"></i>${dateStr} ${timeStr}</span>
+                                    <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-emerald-400 transition flex items-center gap-1" title="Standort auf Google Maps öffnen">
+                                        <i class="fa-solid fa-location-dot text-sky-400"></i>
+                                        <span>${lat}, ${lng}</span>
+                                    </a>
+                                    <span class="text-slate-500">${escapeHtml(item.trigger || 'KI-Scan')}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Delete Action -->
+                        <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
+                            <button onclick="deleteLogEntry('${item.id}')" class="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition text-xs" title="Eintrag löschen">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function deleteLogEntry(id) {
+            vehicleLogs = vehicleLogs.filter(item => item.id !== id);
+            saveLogs();
+            renderLogList();
+            showToast("Eintrag gelöscht", "info");
+        }
+
+        function requestClearLogs() {
+            const btn = document.getElementById('clearAllBtn');
+            if (!clearConfirmPending) {
+                clearConfirmPending = true;
+                btn.innerHTML = `<span class="font-semibold px-1">Sicher?</span>`;
+                setTimeout(() => {
+                    clearConfirmPending = false;
+                    btn.innerHTML = `<i class="fa-solid fa-trash-can"></i>`;
+                }, 3500);
+            } else {
+                vehicleLogs = [];
+                saveLogs();
+                renderLogList();
+                clearConfirmPending = false;
+                btn.innerHTML = `<i class="fa-solid fa-trash-can"></i>`;
+                showToast("Gesamtes Protokoll wurde geleert", "info");
+            }
+        }
+
+        // ==========================================
+        // 8. MANUAL ENTRY & DATA EXPORT (CSV / JSON)
+        // ==========================================
+        function openManualEntryModal() {
+            document.getElementById('manualEntryModal').classList.remove('hidden');
+        }
+
+        function closeManualEntryModal() {
+            document.getElementById('manualEntryModal').classList.add('hidden');
+        }
+
+        function submitManualEntry() {
+            const country = (document.getElementById('manCountry').value || 'CH').trim().toUpperCase();
+            const plate = (document.getElementById('manPlate').value || '').trim().toUpperCase();
+            const brand = (document.getElementById('manBrand').value || 'Unbekannt').trim();
+            const color = (document.getElementById('manColor').value || 'Unbekannt').trim();
+
+            if (!plate) {
+                showToast("Bitte ein Kennzeichen eingeben", "error");
+                return;
+            }
+
+            vehicleLogs.unshift({
+                id: 'man_' + Date.now(),
+                plate,
+                country,
+                brand,
+                color,
+                type: 'PKW',
+                confidence: 100,
+                timestamp: new Date().toISOString(),
+                trigger: 'Manuell',
+                gps: {
+                    lat: gpsState.lat,
+                    lng: gpsState.lng,
+                    label: gpsState.label
+                },
+                thumbnail: null
+            });
+
+            saveLogs();
+            renderLogList();
+            closeManualEntryModal();
+            document.getElementById('manPlate').value = '';
+            document.getElementById('manBrand').value = '';
+            document.getElementById('manColor').value = '';
+            showToast(`Manuell gespeichert: ${plate}`, "success");
+        }
+
+        function exportCSV() {
+            if (vehicleLogs.length === 0) {
+                showToast("Keine Daten zum Exportieren vorhanden", "error");
+                return;
+            }
+
+            const headers = ["Datum", "Uhrzeit", "Land", "Autonummer", "Automarke & Modell", "Farbe", "GPS Breitengrad", "GPS Laengengrad", "Standort", "Ausloeser"];
+            const rows = vehicleLogs.map(item => {
+                const dt = new Date(item.timestamp);
+                const dateStr = dt.toLocaleDateString('de-CH');
+                const timeStr = dt.toLocaleTimeString('de-CH');
+                return [
+                    dateStr,
+                    timeStr,
+                    item.country,
+                    item.plate,
+                    item.brand,
+                    item.color,
+                    item.gps?.lat || '',
+                    item.gps?.lng || '',
+                    item.gps?.label || '',
+                    item.trigger || ''
+                ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(';');
+            });
+
+            // Use UTF-8 BOM so Excel opens umlauts and formatting cleanly
+            const csvContent = "\uFEFF" + headers.join(';') + "\n" + rows.join("\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `fahrzeug_protokoll_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("CSV-Datei für Excel heruntergeladen", "success");
+        }
+
+        function exportJSON() {
+            if (vehicleLogs.length === 0) {
+                showToast("Keine Daten zum Exportieren vorhanden", "error");
+                return;
+            }
+            const dataStr = JSON.stringify(vehicleLogs, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `fahrzeug_protokoll_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("JSON-Backup heruntergeladen", "success");
+        }
+
+        // ==========================================
+        // 9. UTILITY FUNCTIONS
+        // ==========================================
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
+
+        let toastTimer = null;
+        function showToast(msg, type = "info") {
+            const banner = document.getElementById('toastBanner');
+            const icon = document.getElementById('toastIcon');
+            const text = document.getElementById('toastMessage');
+
+            text.textContent = msg;
+            if (type === "success") {
+                icon.className = "fa-solid fa-circle-check text-emerald-400 text-base";
+            } else if (type === "error") {
+                icon.className = "fa-solid fa-triangle-exclamation text-rose-400 text-base";
+            } else {
+                icon.className = "fa-solid fa-circle-info text-sky-400 text-base";
+            }
+
+            banner.classList.remove('hidden');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                banner.classList.add('hidden');
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
